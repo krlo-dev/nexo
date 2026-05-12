@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - nexo-net
+
+  backend:
+    build: ./backend
+    ports:
+      - "4000:4000"
+    env_file: .env
+    depends_on:
+      - db
+      - ai-service
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - nexo-net
+
+  ai-service:
+    build: ./ai-service
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - nexo-net
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: nexo
+      POSTGRES_USER: nexo_user
+      POSTGRES_PASSWORD: changeme_local
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - nexo-net
+
+networks:
+  nexo-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  uploads:
+  ollama_models:

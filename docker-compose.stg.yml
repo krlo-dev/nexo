@@ -1,0 +1,38 @@
+version: '3.9'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NODE_ENV: staging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nexo-net
+
+  backend:
+    environment:
+      - NODE_ENV=staging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nexo-net
+
+  ai-service:
+    restart: unless-stopped
+    networks:
+      - nexo-net
+
+  db:
+    restart: unless-stopped
+    networks:
+      - nexo-net
