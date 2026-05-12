@@ -1,15 +1,12 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "Nexo SaaS - Stack completo de infraestructura en AWS Free Tier"
 
-# ══════════════════════════════════════════════════════════════════
-# PARAMETERS — Variables que se pasan al crear el stack
-# ══════════════════════════════════════════════════════════════════
 Parameters:
   DBPassword:
     Type: String
     NoEcho: true
     MinLength: 8
-    Description: "Contraseña para la base de datos PostgreSQL"
+    Description: "Contrasena para la base de datos PostgreSQL"
 
   JWTSecret:
     Type: String
@@ -37,11 +34,7 @@ Parameters:
     Default: "690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-ai-service:latest"
     Description: "URI de la imagen del ai-service en ECR"
 
-# ══════════════════════════════════════════════════════════════════
-# RESOURCES — Todos los recursos AWS que se crean
-# ══════════════════════════════════════════════════════════════════
 Resources:
-  # ── RED ──────────────────────────────────────────────────────────
   NexoVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -115,9 +108,6 @@ Resources:
       SubnetId: !Ref SubnetB
       RouteTableId: !Ref RouteTable
 
-  # ── SECURITY GROUPS ───────────────────────────────────────────────
-  # EC2 App: permite tráfico HTTP, HTTPS y SSH desde internet
-  # y comunicación interna entre contenedores
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -153,7 +143,6 @@ Resources:
         - Key: Name
           Value: nexo-app-sg
 
-  # EC2 AI: permite tráfico de Ollama solo desde la EC2 de la app
   AISecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -174,7 +163,6 @@ Resources:
         - Key: Name
           Value: nexo-ai-sg
 
-  # RDS: permite PostgreSQL solo desde la EC2 de la app
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -190,7 +178,6 @@ Resources:
         - Key: Name
           Value: nexo-db-sg
 
-  # ── RDS POSTGRESQL ────────────────────────────────────────────────
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -225,7 +212,6 @@ Resources:
         - Key: Name
           Value: nexo-db
 
-  # ── S3 BUCKET ─────────────────────────────────────────────────────
   NexoUploadsBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -246,8 +232,6 @@ Resources:
         - Key: Name
           Value: nexo-uploads
 
-  # ── IAM ROLES ─────────────────────────────────────────────────────
-  # Rol para que EC2 pueda acceder a ECR y S3
   EC2InstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -271,7 +255,6 @@ Resources:
       Roles:
         - !Ref EC2InstanceRole
 
-  # ── ECS CLUSTER ───────────────────────────────────────────────────
   NexoCluster:
     Type: AWS::ECS::Cluster
     Properties:
@@ -280,15 +263,14 @@ Resources:
         - Key: Name
           Value: nexo-cluster
 
-  # ── EC2 APP (frontend + backend) ─────────────────────────────────
   AppInstance:
     Type: AWS::EC2::Instance
     DependsOn:
       - NexoDB
       - NexoCluster
     Properties:
-      InstanceType: t2.micro
-      ImageId: ami-0c02fb55956c7d316 # Amazon Linux 2023 us-east-1
+      InstanceType: t3.micro
+      ImageId: ami-0c02fb55956c7d316
       KeyName: !Ref KeyPairName
       IamInstanceProfile: !Ref EC2InstanceProfile
       NetworkInterfaces:
@@ -300,28 +282,19 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          # Instalar Docker
           yum update -y
           yum install -y docker
           systemctl start docker
           systemctl enable docker
           usermod -a -G docker ec2-user
-
-          # Instalar Docker Compose
           curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
           chmod +x /usr/local/bin/docker-compose
-
-          # Instalar ECS Agent
           yum install -y amazon-ecs-init
           echo "ECS_CLUSTER=nexo-cluster" >> /etc/ecs/ecs.config
           systemctl start ecs
           systemctl enable ecs
-
-          # Autenticar Docker con ECR
           aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 690293068601.dkr.ecr.us-east-1.amazonaws.com
-
-          # Crear archivo .env para el backend
-          cat > /home/ec2-user/.env << 'EOF'
+          cat > /home/ec2-user/.env << EOF
           DB_HOST=${NexoDB.Endpoint.Address}
           DB_PORT=5432
           DB_NAME=nexo
@@ -337,36 +310,20 @@ Resources:
           S3_BUCKET=nexo-uploads-${AWS::AccountId}
           S3_REGION=us-east-1
           EOF
-
-          # Descargar imágenes desde ECR
           docker pull 690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-backend:latest
           docker pull 690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-frontend:latest
-
-          # Levantar contenedores
-          docker run -d \
-            --name nexo-backend \
-            --restart unless-stopped \
-            --env-file /home/ec2-user/.env \
-            -p 4000:4000 \
-            690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-backend:latest
-
-          docker run -d \
-            --name nexo-frontend \
-            --restart unless-stopped \
-            -p 80:80 \
-            690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-frontend:latest
-
+          docker run -d --name nexo-backend --restart unless-stopped --env-file /home/ec2-user/.env -p 4000:4000 690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-backend:latest
+          docker run -d --name nexo-frontend --restart unless-stopped -p 80:80 690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-frontend:latest
       Tags:
         - Key: Name
           Value: nexo-app-server
 
-  # ── EC2 AI (Ollama) ───────────────────────────────────────────────
   AIInstance:
     Type: AWS::EC2::Instance
     DependsOn: NexoCluster
     Properties:
-      InstanceType: t2.micro
-      ImageId: ami-0c02fb55956c7d316 # Amazon Linux 2023 us-east-1
+      InstanceType: t3.micro
+      ImageId: ami-0c02fb55956c7d316
       KeyName: !Ref KeyPairName
       IamInstanceProfile: !Ref EC2InstanceProfile
       NetworkInterfaces:
@@ -378,40 +335,22 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          # Instalar Docker
           yum update -y
           yum install -y docker
           systemctl start docker
           systemctl enable docker
           usermod -a -G docker ec2-user
-
-          # Instalar ECS Agent
           yum install -y amazon-ecs-init
           echo "ECS_CLUSTER=nexo-cluster" >> /etc/ecs/ecs.config
           systemctl start ecs
           systemctl enable ecs
-
-          # Autenticar Docker con ECR
           aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 690293068601.dkr.ecr.us-east-1.amazonaws.com
-
-          # Descargar imagen de Ollama desde ECR
           docker pull 690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-ai-service:latest
-
-          # Levantar Ollama
-          docker run -d \
-            --name nexo-ai \
-            --restart unless-stopped \
-            -p 11434:11434 \
-            -v ollama_models:/root/.ollama \
-            690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-ai-service:latest
-
+          docker run -d --name nexo-ai --restart unless-stopped -p 11434:11434 -v ollama_models:/root/.ollama 690293068601.dkr.ecr.us-east-1.amazonaws.com/nexo-ai-service:latest
       Tags:
         - Key: Name
           Value: nexo-ai-server
 
-# ══════════════════════════════════════════════════════════════════
-# OUTPUTS — Información útil después de crear el stack
-# ══════════════════════════════════════════════════════════════════
 Outputs:
   AppServerIP:
     Description: "IP publica del servidor de la aplicacion"
