@@ -131,6 +131,17 @@ const updateStatus = async (req, res) => {
   if (!allowed.includes(status)) return res.status(400).json({ success: false, error: 'Estado inválido' });
 
   try {
+    // Verificar que la cita pertenece a una tienda del emprendedor que hace la petición
+    if (req.user.role === 'emprendedor') {
+      const ownership = await pool.query(
+        `SELECT a.id FROM appointments a
+         JOIN stores st ON st.id = a.store_id
+         WHERE a.id = $1 AND st.owner_id = $2`,
+        [req.params.id, req.user.id]
+      );
+      if (!ownership.rows[0]) return res.status(403).json({ success: false, error: 'Acceso denegado' });
+    }
+
     const result = await pool.query(
       `UPDATE appointments SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *`,
       [status, req.params.id]

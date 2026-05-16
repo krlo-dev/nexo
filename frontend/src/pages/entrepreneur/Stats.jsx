@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import Navbar from '../../components/Navbar';
 import api from '../../lib/api';
+import { getUser } from '../../lib/auth';
 
 export default function Stats() {
+  const userId = getUser()?.id;
   const { data: appointments } = useQuery({
-    queryKey: ['appointments'],
+    queryKey: ['appointments', userId],
     queryFn: () => api.get('/appointments').then(r => r.data.data),
   });
 

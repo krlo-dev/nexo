@@ -1,29 +1,37 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import toast from 'react-hot-toast';
+import { formatAppointmentDateFull } from '../../lib/date';
 import Navbar from '../../components/Navbar';
 import api from '../../lib/api';
+import { getUser } from '../../lib/auth';
 
 export default function AppointmentDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
+  const userId = getUser()?.id;
 
-  const { data: apt } = useQuery({
-    queryKey: ['appointment', id],
-    queryFn: () => api.get('/appointments').then(r => r.data.data.find(a => a.id === id)),
+  // Misma queryKey que la lista — si la lista se invalida, el detalle también se actualiza
+  const { data: allApts } = useQuery({
+    queryKey: ['appointments', userId],
+    queryFn: () => api.get('/appointments').then(r => r.data.data),
   });
+  const apt = allApts?.find(a => a.id === id);
 
   const cancel = useMutation({
     mutationFn: () => api.delete(`/appointments/${id}`, { data: { cancel_reason: 'Cancelado por el cliente' } }),
-    onSuccess: () => { toast.success('Cita cancelada'); qc.invalidateQueries(['appointments']); },
+    onSuccess: () => {
+      toast.success('Cita cancelada');
+      qc.invalidateQueries({ queryKey: ['appointments'] });
+      navigate('/app/appointments');
+    },
     onError: (err) => toast.error(err.response?.data?.error || 'No se pudo cancelar'),
   });
 
   if (!apt) return <div className="min-h-screen bg-nexo-gray-light"><Navbar /></div>;
 
-  const canCancel = ['pending','confirmed'].includes(apt.status) &&
+  const canCancel = ['pending', 'confirmed'].includes(apt.status) &&
     new Date(apt.start_time) - new Date() > 2 * 60 * 60 * 1000;
 
   return (
@@ -35,7 +43,7 @@ export default function AppointmentDetail() {
           <p className="font-semibold text-lg">{apt.service_name}</p>
           <p className="text-nexo-gray-dark">{apt.store_name}</p>
           <p className="text-sm text-nexo-gray-mid">
-            {format(new Date(apt.start_time), "EEEE d 'de' MMMM yyyy, HH:mm", { locale: es })}
+            {formatAppointmentDateFull(apt.start_time)}
           </p>
           <p className="text-sm">Estado: <span className="font-medium text-nexo-red">{apt.status}</span></p>
           {apt.notes && <p className="text-sm text-nexo-gray-dark">Notas: {apt.notes}</p>}

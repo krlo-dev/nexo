@@ -4,21 +4,23 @@ import toast from 'react-hot-toast';
 import Navbar from '../../components/Navbar';
 import AppointmentCard from '../../components/AppointmentCard';
 import api from '../../lib/api';
+import { getUser } from '../../lib/auth';
 
 const STATUSES = ['todas', 'pending', 'confirmed', 'completed', 'cancelled'];
 
 export default function EntrepreneurAppointments() {
   const [filter, setFilter] = useState('todas');
   const qc = useQueryClient();
+  const userId = getUser()?.id;
 
   const { data } = useQuery({
-    queryKey: ['appointments'],
+    queryKey: ['appointments', userId],
     queryFn: () => api.get('/appointments').then(r => r.data.data),
   });
 
   const updateStatus = useMutation({
     mutationFn: ({ id, status }) => api.patch(`/appointments/${id}/status`, { status }),
-    onSuccess: () => { toast.success('Estado actualizado'); qc.invalidateQueries(['appointments']); },
+    onSuccess: () => { toast.success('Estado actualizado'); qc.invalidateQueries({ queryKey: ['appointments', userId] }); },
     onError: (err) => toast.error(err.response?.data?.error || 'Error'),
   });
 

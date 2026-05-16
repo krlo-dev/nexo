@@ -24,7 +24,7 @@ const getAvailableSlots = async (storeId, date, serviceId) => {
 
   const aptsResult = await pool.query(
     `SELECT start_time, end_time FROM appointments
-     WHERE store_id = $1 AND DATE(start_time AT TIME ZONE 'UTC') = $2 AND status != 'cancelled'`,
+     WHERE store_id = $1 AND DATE(start_time - INTERVAL '5 hours') = $2 AND status != 'cancelled'`,
     [storeId, date]
   );
 

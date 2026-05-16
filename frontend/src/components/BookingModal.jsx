@@ -19,12 +19,12 @@ export default function BookingModal({ store, service, onClose }) {
     mutationFn: () => api.post('/appointments', {
       service_id: service.id,
       store_id: store.id,
-      start_time: `${selectedDate}T${selectedSlot}:00Z`,
+      start_time: `${selectedDate}T${selectedSlot}:00-05:00`,
       notes,
     }),
     onSuccess: () => {
       toast.success('¡Cita agendada!');
-      qc.invalidateQueries(['appointments']);
+      qc.invalidateQueries({ queryKey: ['appointments'] });
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.error || 'Error al agendar'),

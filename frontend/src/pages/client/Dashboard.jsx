@@ -4,10 +4,12 @@ import Navbar from '../../components/Navbar';
 import AppointmentCard from '../../components/AppointmentCard';
 import StoreCard from '../../components/StoreCard';
 import api from '../../lib/api';
+import { getUser } from '../../lib/auth';
 
 export default function ClientDashboard() {
+  const userId = getUser()?.id;
   const { data: appointments } = useQuery({
-    queryKey: ['appointments'],
+    queryKey: ['appointments', userId],
     queryFn: () => api.get('/appointments').then(r => r.data.data),
   });
 
@@ -16,7 +18,10 @@ export default function ClientDashboard() {
     queryFn: () => api.get('/recommendations?limit=4').then(r => r.data.data),
   });
 
-  const upcoming = (appointments || []).filter(a => ['pending','confirmed'].includes(a.status)).slice(0, 3);
+  const upcoming = (appointments || [])
+    .filter(a => ['pending', 'confirmed'].includes(a.status))
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+    .slice(0, 3);
 
   return (
     <div className="min-h-screen bg-nexo-gray-light">

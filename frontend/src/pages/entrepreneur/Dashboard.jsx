@@ -3,17 +3,19 @@ import { Link } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import AppointmentCard from '../../components/AppointmentCard';
 import api from '../../lib/api';
-import { format } from 'date-fns';
+import { getUser } from '../../lib/auth';
+import { toColombiaDateStr, todayColombia } from '../../lib/date';
 
 export default function EntrepreneurDashboard() {
+  const userId = getUser()?.id;
   const { data: appointments } = useQuery({
-    queryKey: ['appointments'],
+    queryKey: ['appointments', userId],
     queryFn: () => api.get('/appointments').then(r => r.data.data),
   });
 
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = todayColombia();
   const todayApts = (appointments || []).filter(a =>
-    a.start_time?.startsWith(today) && a.status !== 'cancelled'
+    toColombiaDateStr(a.start_time) === today && a.status !== 'cancelled'
   );
 
   return (
