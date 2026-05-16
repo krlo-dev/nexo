@@ -18,21 +18,13 @@ services:
   backend:
     environment:
       - NODE_ENV=production
+    volumes:
+      - ./agent:/app/agent
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-    networks:
-      - nexo-net
-
-  ai-service:
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:11434"]
-      interval: 60s
-      timeout: 15s
       retries: 3
     networks:
       - nexo-net

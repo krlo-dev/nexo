@@ -17,18 +17,9 @@ services:
     env_file: .env
     depends_on:
       - db
-      - ai-service
     volumes:
       - uploads:/app/uploads
-    networks:
-      - nexo-net
-
-  ai-service:
-    build: ./ai-service
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
+      - ./agent:/app/agent
     networks:
       - nexo-net
 
@@ -53,4 +44,3 @@ networks:
 volumes:
   postgres_data:
   uploads:
-  ollama_models:

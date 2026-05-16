@@ -23,13 +23,10 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - ./agent:/app/agent
     environment:
       - NODE_ENV=development
       - DEBUG=nexo:*
-    networks:
-      - nexo-net
-
-  ai-service:
     networks:
       - nexo-net
 

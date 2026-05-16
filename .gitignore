@@ -3,3 +3,7 @@ node_modules/
 dist/
 *.log
 uploads/
+
+# Agente IA — datos privados de usuarios
+agent/memory/*.md
+agent/logs/*.log

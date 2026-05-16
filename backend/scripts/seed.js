@@ -1,7 +1,6 @@
 require('dotenv').config();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
-const { generateEmbedding, buildStoreText } = require('../src/services/ollama.service');
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -11,18 +10,7 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
 });
 
-const ZERO_EMBEDDING = JSON.stringify(Array(768).fill(0));
-
 const hash = (p) => bcrypt.hash(p, 10);
-
-const getEmbedding = async (text) => {
-  try {
-    const emb = await generateEmbedding(text);
-    return JSON.stringify(emb);
-  } catch {
-    return ZERO_EMBEDDING;
-  }
-};
 
 async function seed() {
   console.log('Seeding database…');
@@ -50,13 +38,11 @@ async function seed() {
     );
     const userId = userResult.rows[0].id;
     const slug = e.store.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const embedding = await getEmbedding(buildStoreText(e.store));
-
     const storeResult = await pool.query(
-      `INSERT INTO stores (owner_id, slug, name, description, category, tags, city, lat, lon, embedding, avatar_url, banner_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO stores (owner_id, slug, name, description, category, tags, city, lat, lon, avatar_url, banner_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (slug) DO UPDATE SET description=$4 RETURNING id`,
-      [userId, slug, e.store.name, e.store.description, e.store.category, e.store.tags, e.store.city, e.store.lat, e.store.lon, embedding,
+      [userId, slug, e.store.name, e.store.description, e.store.category, e.store.tags, e.store.city, e.store.lat, e.store.lon,
        'https://picsum.photos/200/200?random=' + Math.floor(Math.random() * 100),
        'https://picsum.photos/800/300?random=' + Math.floor(Math.random() * 100)]
     );

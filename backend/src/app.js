@@ -18,7 +18,7 @@ app.use('/api/reviews', require('./routes/reviews.routes'));
 app.use('/api/recommendations', require('./routes/recommendations.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/upload', require('./routes/upload.routes'));
-app.use('/api/chat', require('./routes/chat.routes'));
+app.use('/api/agent', require('./routes/agent'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

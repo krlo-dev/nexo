@@ -1,7 +1,9 @@
 const pool = require('../utils/db');
 
 const getAvailableSlots = async (storeId, date, serviceId) => {
-  const dayOfWeek = new Date(date).getDay();
+  // Parsear YYYY-MM-DD con constructor local para evitar el desfase UTC-5
+  const [y, mo, d] = date.split('-').map(Number);
+  const dayOfWeek = new Date(y, mo - 1, d).getDay();
   const mondayBased = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
   const hoursResult = await pool.query(
@@ -32,8 +34,8 @@ const getAvailableSlots = async (storeId, date, serviceId) => {
     ...slot,
     available: !aptsResult.rows.some(
       (a) =>
-        new Date(a.start_time) < new Date(`${date}T${slot.end}:00Z`) &&
-        new Date(a.end_time) > new Date(`${date}T${slot.start}:00Z`)
+        new Date(a.start_time) < new Date(`${date}T${slot.end}:00-05:00`) &&
+        new Date(a.end_time) > new Date(`${date}T${slot.start}:00-05:00`)
     ),
   }));
 };

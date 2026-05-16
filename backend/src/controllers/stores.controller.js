@@ -1,6 +1,5 @@
 const { validationResult } = require('express-validator');
 const pool = require('../utils/db');
-const { generateEmbedding, buildStoreText } = require('../services/ollama.service');
 
 const list = async (req, res) => {
   const { category, city, q } = req.query;
@@ -56,15 +55,7 @@ const create = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [req.user.id, slug, name, description, category, tags, address, city, lat, lon, phone, instagram_handle]
     );
-    const store = result.rows[0];
-
-    try {
-      const embedding = await generateEmbedding(buildStoreText(store));
-      await pool.query('UPDATE stores SET embedding = $1 WHERE id = $2', [JSON.stringify(embedding), store.id]);
-      store.embedding = JSON.stringify(embedding);
-    } catch { /* Ollama unavailable — store without embedding */ }
-
-    res.status(201).json({ success: true, data: store });
+    res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ success: false, error: 'Slug duplicado' });
     res.status(500).json({ success: false, error: 'Error interno' });
@@ -89,14 +80,7 @@ const update = async (req, res) => {
       `UPDATE stores SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`,
       values
     );
-    const store = result.rows[0];
-
-    try {
-      const embedding = await generateEmbedding(buildStoreText(store));
-      await pool.query('UPDATE stores SET embedding = $1 WHERE id = $2', [JSON.stringify(embedding), store.id]);
-    } catch { /* continue without updated embedding */ }
-
-    res.json({ success: true, data: store });
+    res.json({ success: true, data: result.rows[0] });
   } catch {
     res.status(500).json({ success: false, error: 'Error interno' });
   }
