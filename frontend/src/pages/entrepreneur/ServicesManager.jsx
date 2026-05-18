@@ -14,6 +14,7 @@ export default function ServicesManager() {
   const { data: stores } = useQuery({ queryKey: ['my-stores'], queryFn: () => api.get('/stores').then(r => r.data.data), enabled: !!me });
   const store = stores?.find(s => s.owner_id === me?.id);
 
+
   const { data: services } = useQuery({
     queryKey: ['services', store?.id],
     queryFn: () => api.get(`/stores/${store.id}/services`).then(r => r.data.data),

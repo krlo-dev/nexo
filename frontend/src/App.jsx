@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { getUser } from './lib/auth';
-import ChatBot from './components/ChatBot';
+import AgentChat from './components/AgentChat';
 
 // Public
 import Landing from './pages/public/Landing';
@@ -67,7 +67,7 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    <ChatBot />
+    <AgentChat />
     </>
   );
 }

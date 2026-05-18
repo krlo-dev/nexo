@@ -33,7 +33,7 @@ const create = async (req, res) => {
       'INSERT INTO services (store_id, name, description, duration_minutes, price, currency, images) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
       [req.params.storeId, name, description, duration_minutes, price, currency || 'COP', images]
     );
-    rebuildStoresCatalog().catch(err => console.error('[CATALOG]', err.message));
+    rebuildStoresCatalog().catch(() => {});
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch {
     res.status(500).json({ success: false, error: 'Error interno' });
@@ -58,7 +58,7 @@ const update = async (req, res) => {
       `UPDATE services SET ${updates.join(', ')} WHERE id = $${values.length} AND store_id = $${values.length - updates.length + 0} RETURNING *`,
       values
     );
-    rebuildStoresCatalog().catch(err => console.error('[CATALOG]', err.message));
+    rebuildStoresCatalog().catch(() => {});
     res.json({ success: true, data: result.rows[0] });
   } catch {
     res.status(500).json({ success: false, error: 'Error interno' });
@@ -71,7 +71,7 @@ const remove = async (req, res) => {
   }
   try {
     await pool.query('UPDATE services SET is_active = false WHERE id = $1 AND store_id = $2', [req.params.id, req.params.storeId]);
-    rebuildStoresCatalog().catch(err => console.error('[CATALOG]', err.message));
+    rebuildStoresCatalog().catch(() => {});
     res.json({ success: true, data: { id: req.params.id } });
   } catch {
     res.status(500).json({ success: false, error: 'Error interno' });

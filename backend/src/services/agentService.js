@@ -182,10 +182,7 @@ async function rebuildStoresCatalog() {
     const memDir = path.join(AGENT_PATH, 'memory');
     if (!fs.existsSync(memDir)) fs.mkdirSync(memDir, { recursive: true });
     fs.writeFileSync(path.join(memDir, 'STORES_CATALOG.md'), lines.join('\n'), 'utf-8');
-    console.log(`[CATALOG] Catálogo actualizado — ${stores.length} tienda(s)`);
-  } catch (err) {
-    console.error('[CATALOG] Error al reconstruir catálogo:', err.message);
-  }
+  } catch { /* silent — catalog rebuild is best-effort */ }
 }
 
 function getStoresCatalog() {
@@ -332,10 +329,8 @@ async function executeBooking({ storeId, serviceId, startTime, notes }, userId) 
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, start_time, end_time, status`,
       [userId, serviceId, storeId, start.toISOString(), end.toISOString(), notes || '']
     );
-    console.log(`[AGENDAR] cita creada ${r.rows[0].id} para user ${userId}`);
     return { success: true, appointmentId: r.rows[0].id, message: 'Cita creada exitosamente.' };
   } catch (err) {
-    console.error('[AGENDAR] error:', err.message);
     return { success: false, error: err.message };
   }
 }

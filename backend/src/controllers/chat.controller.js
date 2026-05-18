@@ -53,8 +53,7 @@ const chat = async (req, res) => {
     let searchEmbedding;
     try {
       searchEmbedding = await generateEmbedding(intent.searchText);
-    } catch (e) {
-      console.error('Embedding generation failed:', e.message);
+    } catch {
       return res.json({
         success: true,
         data: {
@@ -211,8 +210,7 @@ const chat = async (req, res) => {
       },
     });
 
-  } catch (err) {
-    console.error('Chat controller error:', err);
+  } catch {
     return res.json({
       success: false,
       error: 'Ocurrió un error procesando tu consulta. Por favor intenta de nuevo.',

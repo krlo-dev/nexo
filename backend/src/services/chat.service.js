@@ -43,9 +43,7 @@ Respond ONLY with valid JSON, no explanation:`;
         isAppointmentRelated: parsed.isAppointmentRelated !== false,
       };
     }
-  } catch (e) {
-    console.error('normalizeIntent error:', e.message);
-  }
+  } catch { /* silent fallback */ }
 
   return { searchText: null, city: null, maxPrice: null, isAppointmentRelated: true };
 };
@@ -122,8 +120,7 @@ Your response (in Spanish, using only the data above):`;
 
     const data = await res.json();
     return data.response ? data.response.trim() : null;
-  } catch (e) {
-    console.error('generateNaturalResponse error:', e.message);
+  } catch {
     return null;
   }
 };

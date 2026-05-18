@@ -56,7 +56,7 @@ const create = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [req.user.id, slug, name, description, category, tags, address, city, lat, lon, phone, instagram_handle]
     );
-    rebuildStoresCatalog().catch(err => console.error('[CATALOG]', err.message));
+    rebuildStoresCatalog().catch(() => {});
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ success: false, error: 'Slug duplicado' });
@@ -82,7 +82,7 @@ const update = async (req, res) => {
       `UPDATE stores SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`,
       values
     );
-    rebuildStoresCatalog().catch(err => console.error('[CATALOG]', err.message));
+    rebuildStoresCatalog().catch(() => {});
     res.json({ success: true, data: result.rows[0] });
   } catch {
     res.status(500).json({ success: false, error: 'Error interno' });
@@ -96,7 +96,7 @@ const remove = async (req, res) => {
       [req.params.id, req.user.id]
     );
     if (!result.rows[0]) return res.status(403).json({ success: false, error: 'Acceso denegado' });
-    rebuildStoresCatalog().catch(err => console.error('[CATALOG]', err.message));
+    rebuildStoresCatalog().catch(() => {});
     res.json({ success: true, data: { id: req.params.id } });
   } catch {
     res.status(500).json({ success: false, error: 'Error interno' });

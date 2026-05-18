@@ -29,10 +29,6 @@ services:
     networks:
       - nexo-net
 
-  ai-service:
-    networks:
-      - nexo-net
-
   db:
     networks:
       - nexo-net
