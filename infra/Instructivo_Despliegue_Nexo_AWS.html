@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Guía de Despliegue — Nexo SaaS en AWS</title>
+<style>
+  body {
+    font-family: Calibri, Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    max-width: 750px;
+    margin: 40px auto;
+    line-height: 1.6;
+  }
+  h1 {
+    font-size: 22pt;
+    color: #1a3a6b;
+    border-bottom: 3px solid #1a3a6b;
+    padding-bottom: 8px;
+    margin-top: 0;
+  }
+  h2 {
+    font-size: 15pt;
+    color: #1a3a6b;
+    border-left: 5px solid #1a3a6b;
+    padding-left: 10px;
+    margin-top: 32px;
+  }
+  h3 {
+    font-size: 12pt;
+    color: #2c5f9e;
+    margin-top: 20px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: #555;
+    font-size: 11pt;
+    margin-top: -10px;
+    margin-bottom: 24px;
+  }
+  .info-box {
+    background: #e8f0fe;
+    border-left: 4px solid #2c5f9e;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .warn-box {
+    background: #fff8e1;
+    border-left: 4px solid #f9a825;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .ok-box {
+    background: #e8f5e9;
+    border-left: 4px solid #2e7d32;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .danger-box {
+    background: #fce4ec;
+    border-left: 4px solid #c62828;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 10pt;
+    background: #f0f0f0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #c7254e;
+  }
+  pre {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9.5pt;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    line-height: 1.5;
+    margin: 10px 0;
+  }
+  pre .comment { color: #6a9955; }
+  pre .str { color: #ce9178; }
+  pre .kw { color: #569cd6; }
+  ol { padding-left: 20px; }
+  ol li { margin-bottom: 6px; }
+  ul { padding-left: 20px; }
+  ul li { margin-bottom: 4px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 10pt;
+  }
+  table th {
+    background: #1a3a6b;
+    color: white;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  table td {
+    border: 1px solid #ddd;
+    padding: 7px 10px;
+  }
+  table tr:nth-child(even) td { background: #f5f7ff; }
+  .step-badge {
+    display: inline-block;
+    background: #1a3a6b;
+    color: white;
+    font-weight: bold;
+    font-size: 10pt;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    text-align: center;
+    line-height: 24px;
+    margin-right: 8px;
+  }
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 9pt;
+    font-weight: bold;
+  }
+  .tag-free { background: #c8e6c9; color: #1b5e20; }
+  .tag-console { background: #bbdefb; color: #0d47a1; }
+  .tag-terminal { background: #ffe0b2; color: #bf360c; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 28px 0; }
+  .page-break { page-break-before: always; }
+  .footer {
+    margin-top: 40px;
+    color: #888;
+    font-size: 9pt;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Guía de Despliegue — Nexo SaaS en AWS</h1>
+<p class="subtitle">
+  Infraestructura Free Tier &nbsp;|&nbsp; EC2 t2.micro + ECS + RDS PostgreSQL<br>
+  <strong>Costo estimado: $0/mes</strong> (primeros 12 meses de cuenta AWS nueva)
+</p>
+
+<div class="info-box">
+  <strong>¿Qué hace esta guía?</strong><br>
+  Despliega toda la aplicación Nexo en AWS usando CloudFormation. Al terminar tendrás
+  un servidor corriendo en una IP pública fija. Cuando ya no lo necesites, eliminas
+  el stack y AWS borra <em>todo</em> automáticamente.
+</div>
+
+<div class="warn-box">
+  <strong>Leyenda de etiquetas:</strong>
+  &nbsp;<span class="tag tag-console">Consola AWS</span> = acción en el navegador &nbsp;
+  <span class="tag tag-terminal">Terminal</span> = comandos en Docker Desktop &nbsp;
+  <span class="tag tag-free">Free Tier</span> = servicio incluido en capa gratuita
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2>Preparación previa (antes de empezar)</h2>
+
+<h3>Lo que necesitas instalado en tu PC</h3>
+<ul>
+  <li><strong>Docker Desktop</strong> — descarga desde <code>docker.com/products/docker-desktop</code><br>
+    Necesario para construir y subir las imágenes de la app.</li>
+  <li><strong>AWS CLI</strong> — <em>solo para el login de Docker a ECR</em> (1 comando).<br>
+    Descarga desde <code>aws.amazon.com/cli</code> → Installer para Windows.</li>
+</ul>
+
+<h3>Lo que necesitas tener a la mano</h3>
+<ul>
+  <li>Tu <strong>API Key de NVIDIA NIM</strong> (empieza por <code>nvapi-</code>)</li>
+  <li>Una <strong>contraseña para la base de datos</strong> (mínimo 12 caracteres, con mayúsculas, números y símbolo. Ej: <code>Nexo2026!!Clave</code>)</li>
+  <li>Un <strong>JWT Secret</strong> largo (mínimo 32 caracteres. Puedes generarlo en <code>randomkeygen.com</code> → 256-bit WEP Key)</li>
+</ul>
+
+<div class="warn-box">
+  <strong>Configura una alerta de billing primero.</strong><br>
+  En la consola AWS → <em>Billing → Budgets → Create budget → Zero spend budget</em>.
+  Así te avisa por email si algo sale del free tier.
+</div>
+
+<h3>El archivo CloudFormation</h3>
+<p>El archivo que subirás a AWS está en tu proyecto en la ruta:</p>
+<pre>C:\Users\Carlito\Documents\SaaS NEXO\infra\cloudformation.yml</pre>
+<p>No lo modifiques. Solo lo vas a subir tal cual.</p>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2><span class="step-badge">1</span> Crear el stack con CloudFormation</h2>
+<p>
+  <span class="tag tag-console">Consola AWS</span>
+  <span class="tag tag-free">Free Tier</span>
+</p>
+
+<p>Este paso crea <strong>todo</strong>: la red (VPC), la base de datos (RDS), los repositorios
+de imágenes (ECR), el servidor (EC2) y el orquestador de contenedores (ECS).</p>
+
+<ol>
+  <li>Ve a <strong>aws.amazon.com/console</strong> e inicia sesión.</li>
+  <li>En la barra de búsqueda superior escribe <strong>CloudFormation</strong> y haz clic.</li>
+  <li>Asegúrate de estar en la región correcta (esquina superior derecha). Usa <strong>us-east-1 (N. Virginia)</strong> — tiene el mayor soporte de free tier.</li>
+  <li>Haz clic en el botón naranja <strong>"Create stack"</strong> → <strong>"With new resources (standard)"</strong>.</li>
+</ol>
+
+<h3>Pantalla "Specify template"</h3>
+<ol start="5">
+  <li>Selecciona <strong>"Upload a template file"</strong>.</li>
+  <li>Haz clic en <strong>"Choose file"</strong> y navega hasta:<br>
+    <code>C:\Users\Carlito\Documents\SaaS NEXO\infra\cloudformation.yml</code></li>
+  <li>Haz clic en <strong>"Next"</strong>.</li>
+</ol>
+
+<h3>Pantalla "Specify stack details"</h3>
+<ol start="8">
+  <li>En <strong>Stack name</strong> escribe: <code>nexo-prod</code></li>
+  <li>Llena los parámetros:
+
+    <table>
+      <tr><th>Parámetro</th><th>Valor a poner</th></tr>
+      <tr><td><strong>DBPassword</strong></td><td>Tu contraseña para la BD (ej: <code>Nexo2026!!Clave</code>)</td></tr>
+      <tr><td><strong>JwtSecret</strong></td><td>Tu JWT Secret largo (32+ chars)</td></tr>
+      <tr><td><strong>NvidiaApiKey</strong></td><td>Tu API Key <code>nvapi-...</code></td></tr>
+      <tr><td>NvidiaNimUrl</td><td>Dejar el valor por defecto</td></tr>
+      <tr><td>GlmModel</td><td>Dejar el valor por defecto</td></tr>
+      <tr><td>EC2InstanceType</td><td><strong>t2.micro</strong> (free tier)</td></tr>
+      <tr><td>DBInstanceClass</td><td><strong>db.t2.micro</strong> (free tier)</td></tr>
+      <tr><td>AllowSSHFrom</td><td><code>0.0.0.0/0</code> (o tu IP pública para más seguridad)</td></tr>
+    </table>
+  </li>
+  <li>Haz clic en <strong>"Next"</strong>.</li>
+</ol>
+
+<h3>Pantalla "Configure stack options"</h3>
+<ol start="11">
+  <li>No cambies nada. Haz clic en <strong>"Next"</strong>.</li>
+</ol>
+
+<h3>Pantalla "Review and create"</h3>
+<ol start="12">
+  <li>Baja hasta el final de la página.</li>
+  <li>Activa la casilla que dice <strong>"I acknowledge that AWS CloudFormation might create IAM resources with custom names"</strong>.</li>
+  <li>Haz clic en <strong>"Submit"</strong>.</li>
+</ol>
+
+<div class="info-box">
+  <strong>Ahora espera.</strong> El stack tardará entre 8 y 12 minutos en crearse
+  (el RDS es lo más lento). Puedes ver el progreso en la pestaña <em>"Events"</em>.
+  Cuando el estado diga <strong>CREATE_COMPLETE</strong> en verde, continúa.
+</div>
+
+<h3>Guardar los valores de salida (Outputs)</h3>
+<ol start="15">
+  <li>Haz clic en tu stack <code>nexo-prod</code>.</li>
+  <li>Ve a la pestaña <strong>"Outputs"</strong>.</li>
+  <li>Anota (o deja esta pestaña abierta) los siguientes valores:
+
+    <table>
+      <tr><th>Key</th><th>Para qué sirve</th></tr>
+      <tr><td><code>ElasticIPAddress</code></td><td>La IP pública de tu app</td></tr>
+      <tr><td><code>BackendECRUri</code></td><td>URL del repo Docker del backend</td></tr>
+      <tr><td><code>FrontendECRUri</code></td><td>URL del repo Docker del frontend</td></tr>
+      <tr><td><code>DatabaseEndpoint</code></td><td>Dirección del servidor de base de datos</td></tr>
+      <tr><td><code>ECRLoginCommand</code></td><td>Comando para autenticarte en ECR</td></tr>
+    </table>
+  </li>
+</ol>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<h2><span class="step-badge">2</span> Asociar la Elastic IP al servidor EC2</h2>
+<p><span class="tag tag-console">Consola AWS</span></p>
+
+<p>La Elastic IP es tu dirección pública fija. Hay que "pegarla" al servidor manualmente.</p>
+
+<ol>
+  <li>En la consola AWS busca <strong>EC2</strong> y entra.</li>
+  <li>En el menú izquierdo ve a <strong>"Instances"</strong>.</li>
+  <li>Deberías ver una instancia llamada <code>nexo-ecs-host</code> con estado <strong>Running</strong>.</li>
+  <li>Copia su <strong>Instance ID</strong> (algo como <code>i-0abc123...</code>).</li>
+</ol>
+
+<ol start="5">
+  <li>En el menú izquierdo, baja hasta <strong>"Elastic IPs"</strong> (dentro de "Network &amp; Security").</li>
+  <li>Verás una IP listada. Haz clic en ella.</li>
+  <li>Haz clic en el botón <strong>"Actions"</strong> → <strong>"Associate Elastic IP address"</strong>.</li>
+  <li>En <strong>"Resource type"</strong> selecciona <strong>Instance</strong>.</li>
+  <li>En <strong>"Instance"</strong> busca y selecciona <code>nexo-ecs-host</code>.</li>
+  <li>Haz clic en <strong>"Associate"</strong>.</li>
+</ol>
+
+<div class="ok-box">
+  <strong>Listo.</strong> Esa IP es ahora la dirección permanente de tu app.
+  Anótala — la usarás para abrir la app en el browser.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2><span class="step-badge">3</span> Configurar AWS CLI (una sola vez)</h2>
+<p><span class="tag tag-terminal">Terminal</span></p>
+
+<p>Abre <strong>Docker Desktop</strong> → haz clic en el ícono de terminal (esquina inferior izquierda)
+o abre una <strong>PowerShell</strong> normal en Windows.</p>
+
+<ol>
+  <li>Escribe el siguiente comando y presiona Enter:
+    <pre>aws configure</pre>
+  </li>
+  <li>Te va a pedir 4 valores uno por uno. Consíguelos en la consola AWS
+    → <em>tu nombre (esquina superior derecha) → Security credentials → Access keys → Create access key</em>:
+
+    <table>
+      <tr><th>Campo</th><th>Qué poner</th></tr>
+      <tr><td>AWS Access Key ID</td><td>El Access Key de tu cuenta (empieza con AKIA...)</td></tr>
+      <tr><td>AWS Secret Access Key</td><td>El Secret Key</td></tr>
+      <tr><td>Default region name</td><td><code>us-east-1</code></td></tr>
+      <tr><td>Default output format</td><td><code>json</code></td></tr>
+    </table>
+  </li>
+</ol>
+
+<div class="warn-box">
+  <strong>Guarda bien tu Access Key y Secret Key.</strong>
+  Solo se muestran una vez. Si los pierdes, debes crear unos nuevos.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2><span class="step-badge">4</span> Construir y subir las imágenes Docker a ECR</h2>
+<p><span class="tag tag-terminal">Terminal</span> &nbsp; <span class="tag tag-free">Free Tier — 500MB incluidos</span></p>
+
+<p>Abre una terminal en la carpeta del proyecto. En PowerShell:</p>
+<pre>cd "C:\Users\Carlito\Documents\SaaS NEXO"</pre>
+
+<h3>4.1 — Autenticarse en ECR</h3>
+<p>Copia el valor de <code>ECRLoginCommand</code> del Output de CloudFormation y ejecútalo. Se ve así:</p>
+<pre>aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com</pre>
+<p>Reemplaza <code>123456789012</code> con tu número de cuenta AWS (lo ves en el Output).<br>
+Si aparece <strong>Login Succeeded</strong>, continúa.</p>
+
+<h3>4.2 — Construir y subir el Backend</h3>
+<p>Reemplaza <code>TU_BACKEND_ECR_URI</code> con el valor de <code>BackendECRUri</code> del Output:</p>
+<pre><span class="comment"># Construir la imagen</span>
+docker build --platform linux/amd64 -t nexo-backend ./backend
+
+<span class="comment"># Etiquetar con la URI de ECR</span>
+docker tag nexo-backend:latest TU_BACKEND_ECR_URI:latest
+
+<span class="comment"># Subir a ECR</span>
+docker push TU_BACKEND_ECR_URI:latest</pre>
+
+<div class="info-box">
+  Ejemplo real: si tu BackendECRUri es <code>123456789012.dkr.ecr.us-east-1.amazonaws.com/nexo-backend</code><br>
+  entonces el tag sería: <code>docker tag nexo-backend:latest 123456789012.dkr.ecr.us-east-1.amazonaws.com/nexo-backend:latest</code>
+</div>
+
+<h3>4.3 — Construir y subir el Frontend</h3>
+<p>Reemplaza <code>TU_FRONTEND_ECR_URI</code> con el valor de <code>FrontendECRUri</code>:</p>
+<pre><span class="comment"># Construir la imagen</span>
+docker build --platform linux/amd64 -t nexo-frontend ./frontend
+
+<span class="comment"># Etiquetar con la URI de ECR</span>
+docker tag nexo-frontend:latest TU_FRONTEND_ECR_URI:latest
+
+<span class="comment"># Subir a ECR</span>
+docker push TU_FRONTEND_ECR_URI:latest</pre>
+
+<div class="info-box">
+  <strong>El push puede tardar 3-5 minutos</strong> según tu velocidad de internet.
+  Verás una barra de progreso por cada capa de la imagen.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<h2><span class="step-badge">5</span> Reiniciar el servicio ECS para tomar las imágenes</h2>
+<p><span class="tag tag-console">Consola AWS</span></p>
+
+<p>Las imágenes ya están en ECR. Ahora hay que decirle a ECS que las descargue y arranque los contenedores.</p>
+
+<ol>
+  <li>En la consola AWS busca <strong>ECS</strong> (Elastic Container Service) y entra.</li>
+  <li>Haz clic en el cluster <strong>nexo-cluster</strong>.</li>
+  <li>Ve a la pestaña <strong>"Services"</strong>.</li>
+  <li>Haz clic en el servicio <strong>nexo-app</strong>.</li>
+  <li>Haz clic en el botón <strong>"Update service"</strong> (arriba a la derecha).</li>
+  <li>Activa la casilla <strong>"Force new deployment"</strong>.</li>
+  <li>Haz clic en <strong>"Update"</strong>.</li>
+</ol>
+
+<div class="info-box">
+  ECS descargará las imágenes de ECR y lanzará los contenedores. Ve a la pestaña <strong>"Tasks"</strong>
+  del servicio para ver el progreso. Cuando el task tenga estado <strong>RUNNING</strong>, continúa.
+  Puede tardar 2-4 minutos.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2><span class="step-badge">6</span> Inicializar la base de datos</h2>
+<p><span class="tag tag-console">Consola AWS</span></p>
+
+<p>La base de datos está vacía. Hay que crear las tablas corriendo el archivo <code>infra/init.sql</code>.
+Esto se hace <strong>una sola vez</strong>.</p>
+
+<h3>6.1 — Entrar al contenedor del backend via ECS Exec</h3>
+<ol>
+  <li>En la consola de ECS → <strong>nexo-cluster</strong> → pestaña <strong>"Tasks"</strong>.</li>
+  <li>Haz clic en el Task ID (el que está en estado <em>RUNNING</em>).</li>
+  <li>Baja hasta la sección <strong>"Containers"</strong>.</li>
+  <li>Expande el contenedor <strong>backend</strong>.</li>
+  <li>Haz clic en el botón <strong>"Execute command"</strong>.</li>
+  <li>En el campo <strong>"Command"</strong> escribe: <code>sh</code></li>
+  <li>Haz clic en <strong>"Execute"</strong>.</li>
+</ol>
+
+<p>Se abrirá una terminal dentro del contenedor. Ahora ejecuta el siguiente bloque para crear las tablas:</p>
+
+<pre>psql postgresql://nexo_user:TU_DB_PASSWORD@TU_DB_ENDPOINT/nexo &lt;&lt;'SQL'
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS users (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email         VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role          VARCHAR(20) NOT NULL CHECK (role IN ('admin','emprendedor','cliente')),
+  full_name     VARCHAR(255) NOT NULL,
+  avatar_url    TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS stores (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  owner_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  slug             VARCHAR(100) UNIQUE NOT NULL,
+  name             VARCHAR(255) NOT NULL,
+  description      TEXT,
+  category         VARCHAR(100) NOT NULL,
+  tags             TEXT[],
+  avatar_url       TEXT,
+  banner_url       TEXT,
+  address          TEXT,
+  city             VARCHAR(100),
+  lat              DECIMAL(10,8),
+  lon              DECIMAL(11,8),
+  phone            VARCHAR(20),
+  instagram_handle VARCHAR(100),
+  is_active        BOOLEAN DEFAULT true,
+  avg_rating       DECIMAL(3,2) DEFAULT 0,
+  total_reviews    INTEGER DEFAULT 0,
+  embedding        TEXT,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS services (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  store_id         UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  name             VARCHAR(255) NOT NULL,
+  description      TEXT,
+  duration_minutes INTEGER NOT NULL,
+  price            DECIMAL(10,2),
+  currency         VARCHAR(3) DEFAULT 'COP',
+  images           TEXT[],
+  is_active        BOOLEAN DEFAULT true,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS business_hours (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  store_id    UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+  open_time   TIME NOT NULL,
+  close_time  TIME NOT NULL,
+  is_open     BOOLEAN DEFAULT true,
+  UNIQUE(store_id, day_of_week)
+);
+
+CREATE TABLE IF NOT EXISTS appointments (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id        UUID NOT NULL REFERENCES users(id),
+  service_id       UUID NOT NULL REFERENCES services(id),
+  store_id         UUID NOT NULL REFERENCES stores(id),
+  start_time       TIMESTAMPTZ NOT NULL,
+  end_time         TIMESTAMPTZ NOT NULL,
+  status           VARCHAR(20) DEFAULT 'pending'
+                   CHECK (status IN ('pending','confirmed','cancelled','completed','rescheduled')),
+  notes            TEXT,
+  cancel_reason    TEXT,
+  allow_reschedule BOOLEAN DEFAULT true,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  appointment_id UUID UNIQUE NOT NULL REFERENCES appointments(id),
+  client_id      UUID NOT NULL REFERENCES users(id),
+  store_id       UUID NOT NULL REFERENCES stores(id),
+  rating         INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment        TEXT,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_appointments_store_time ON appointments(store_id, start_time);
+CREATE INDEX IF NOT EXISTS idx_appointments_client ON appointments(client_id);
+CREATE INDEX IF NOT EXISTS idx_stores_category ON stores(category);
+CREATE INDEX IF NOT EXISTS idx_stores_location ON stores(lat, lon);
+CREATE INDEX IF NOT EXISTS idx_stores_active ON stores(is_active);
+SQL</pre>
+
+<div class="warn-box">
+  Reemplaza <strong>TU_DB_PASSWORD</strong> con la contraseña que pusiste en el Paso 1.<br>
+  Reemplaza <strong>TU_DB_ENDPOINT</strong> con el valor de <code>DatabaseEndpoint</code> del Output de CloudFormation.
+</div>
+
+<div class="ok-box">
+  Si termina sin errores verás mensajes como <code>CREATE TABLE</code>, <code>CREATE INDEX</code>, etc.
+  Las tablas están listas.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2><span class="step-badge">7</span> Verificar que todo funciona</h2>
+<p><span class="tag tag-console">Consola AWS</span></p>
+
+<ol>
+  <li>Abre tu navegador y ve a: <code>http://TU_ELASTIC_IP</code><br>
+    (reemplaza con la IP del Output del Paso 1)</li>
+  <li>Deberías ver la página de inicio de Nexo.</li>
+  <li>Para verificar que el backend responde, abre: <code>http://TU_ELASTIC_IP/api/health</code><br>
+    Debe responder: <code>{"status":"ok"}</code></li>
+</ol>
+
+<h3>¿Algo no funciona? Cómo ver los logs</h3>
+<ol>
+  <li>En la consola AWS busca <strong>CloudWatch</strong>.</li>
+  <li>Ve a <strong>Log groups</strong>.</li>
+  <li>Abre el grupo <code>/ecs/nexo</code>.</li>
+  <li>Ahí verás los logs separados por <code>backend/</code> y <code>frontend/</code>.</li>
+</ol>
+
+<h3>(Opcional) Registrar el usuario admin</h3>
+<p>La app arranca sin usuarios. Crea el primer admin repitiendo el Paso 6.1 para ejecutar el seed:</p>
+<pre>node /app/src/scripts/seed.js</pre>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<h2><span class="step-badge">8</span> Actualizar la app (futuras versiones)</h2>
+<p><span class="tag tag-terminal">Terminal</span> &nbsp; <span class="tag tag-console">Consola AWS</span></p>
+
+<p>Cada vez que hagas cambios y quieras actualizar en producción:</p>
+
+<h3>Desde la terminal (Docker Desktop)</h3>
+<pre><span class="comment"># Desde la carpeta del proyecto</span>
+cd "C:\Users\Carlito\Documents\SaaS NEXO"
+
+<span class="comment"># Backend (si cambió)</span>
+docker build --platform linux/amd64 -t nexo-backend ./backend
+docker tag nexo-backend:latest TU_BACKEND_ECR_URI:latest
+docker push TU_BACKEND_ECR_URI:latest
+
+<span class="comment"># Frontend (si cambió)</span>
+docker build --platform linux/amd64 -t nexo-frontend ./frontend
+docker tag nexo-frontend:latest TU_FRONTEND_ECR_URI:latest
+docker push TU_FRONTEND_ECR_URI:latest</pre>
+
+<h3>Desde la consola AWS</h3>
+<ol>
+  <li>ECS → <strong>nexo-cluster</strong> → Services → <strong>nexo-app</strong>.</li>
+  <li><strong>"Update service"</strong> → activa <strong>"Force new deployment"</strong> → <strong>"Update"</strong>.</li>
+</ol>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2>⚠ Destruir todo (cuando ya no lo necesites)</h2>
+<p><span class="tag tag-console">Consola AWS</span> &nbsp; <span class="tag tag-terminal">Terminal</span></p>
+
+<div class="danger-box">
+  <strong>Esto elimina TODOS los recursos y datos. Es irreversible.</strong><br>
+  Haz un backup de la DB si necesitas los datos antes de borrar.
+</div>
+
+<h3>Paso A — Vaciar los repositorios ECR</h3>
+<p>CloudFormation no puede borrar un repositorio ECR si tiene imágenes adentro.
+Primero vacíalos desde la consola:</p>
+<ol>
+  <li>En la consola AWS busca <strong>ECR</strong> (Elastic Container Registry).</li>
+  <li>Haz clic en el repositorio <strong>nexo-backend</strong>.</li>
+  <li>Selecciona todas las imágenes (checkbox arriba) → <strong>"Delete"</strong>.</li>
+  <li>Repite para el repositorio <strong>nexo-frontend</strong>.</li>
+</ol>
+
+<h3>Paso B — Eliminar el stack de CloudFormation</h3>
+<ol>
+  <li>Ve a <strong>CloudFormation</strong> en la consola AWS.</li>
+  <li>Selecciona el stack <strong>nexo-prod</strong>.</li>
+  <li>Haz clic en <strong>"Delete"</strong>.</li>
+  <li>Confirma con <strong>"Delete stack"</strong>.</li>
+</ol>
+
+<div class="info-box">
+  Tardará unos minutos. Cuando desaparezca de la lista, <strong>todo ha sido eliminado</strong>:
+  VPC, EC2, RDS, ECS, ECR, IP — todo. Tu cuenta queda limpia.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2>Resumen de costos Free Tier</h2>
+
+<table>
+  <tr>
+    <th>Servicio</th>
+    <th>Recurso</th>
+    <th>Free Tier incluye</th>
+    <th>Costo</th>
+  </tr>
+  <tr>
+    <td>EC2</td>
+    <td>t2.micro (ECS host)</td>
+    <td>750 h/mes (12 meses)</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td>RDS</td>
+    <td>db.t2.micro PostgreSQL</td>
+    <td>750 h/mes + 20GB (12 meses)</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td>ECR</td>
+    <td>Repositorios Docker</td>
+    <td>500 MB/mes</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td>ECS</td>
+    <td>Orquestación (sin Fargate)</td>
+    <td>Siempre gratis</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td>CloudFormation</td>
+    <td>Gestión de infraestructura</td>
+    <td>Siempre gratis</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td>Elastic IP</td>
+    <td>IP pública fija</td>
+    <td>Gratis mientras está asociada a una instancia corriendo</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td>CloudWatch Logs</td>
+    <td>Logs de la app</td>
+    <td>5 GB/mes</td>
+    <td><strong>$0</strong></td>
+  </tr>
+  <tr>
+    <td colspan="3"><strong>TOTAL</strong></td>
+    <td><strong>$0 / mes</strong></td>
+  </tr>
+</table>
+
+<div class="warn-box">
+  El Free Tier aplica durante los <strong>primeros 12 meses</strong> desde que creaste la cuenta AWS.
+  Después del mes 12, el EC2 t2.micro cuesta ~$8.5/mes y el RDS ~$12.5/mes.
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2>Arquitectura desplegada</h2>
+
+<pre style="background:#f8f9fa; color:#1a1a1a; border: 1px solid #ddd;">
+Internet (HTTP :80)
+        │
+        ▼
+┌──────────────────────────────────────┐
+│  EC2 t2.micro  (Elastic IP fija)     │
+│  ┌────────────────────────────────┐  │
+│  │  ECS Cluster — nexo-cluster   │  │
+│  │  ┌──────────────────────────┐ │  │
+│  │  │   ECS Task (bridge net)  │ │  │
+│  │  │                          │ │  │
+│  │  │  ┌────────────────────┐  │ │  │
+│  │  │  │ frontend (nginx)   │  │ │  │
+│  │  │  │ puerto 80 expuesto │  │ │  │
+│  │  │  │ /api/ ──────────┐  │  │ │  │
+│  │  │  └─────────────────│──┘  │ │  │
+│  │  │                    │     │ │  │
+│  │  │  ┌─────────────────▼──┐  │ │  │
+│  │  │  │ backend (Node.js)  │  │ │  │
+│  │  │  │ puerto 4000 intern │  │ │  │
+│  │  │  └────────────────────┘  │ │  │
+│  │  └──────────────────────────┘ │  │
+│  └────────────────────────────────┘  │
+└──────────────────────────────────────┘
+                    │
+                    │ (red privada VPC)
+                    ▼
+        ┌──────────────────────┐
+        │  RDS PostgreSQL      │
+        │  db.t2.micro — nexo  │
+        └──────────────────────┘
+
+ECR: nexo-backend, nexo-frontend
+     (repositorios de imágenes Docker)
+</pre>
+
+<div class="footer">
+  Nexo SaaS &nbsp;|&nbsp; Guía de Despliegue AWS Free Tier &nbsp;|&nbsp; Mayo 2026<br>
+  Archivo CloudFormation: <code>infra/cloudformation.yml</code>
+</div>
+
+</body>
+</html>
