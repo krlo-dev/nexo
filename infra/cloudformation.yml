@@ -1,87 +1,69 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Nexo SaaS — Infraestructura completa de producción.
-  Incluye VPC, RDS PostgreSQL, ECR, ECS Fargate y ALB.
+  Nexo SaaS — Infraestructura FREE TIER optimizada.
+  EC2 t2.micro (ECS on EC2, sin Fargate) + RDS t2.micro.
+  Sin ALB ni NAT Gateway. Costo estimado: $0/mes (primeros 12 meses).
 
-  FLUJO DE DESPLIEGUE:
-    1. aws cloudformation deploy --template-file infra/cloudformation.yml \
-         --stack-name nexo-prod \
-         --capabilities CAPABILITY_NAMED_IAM \
-         --parameter-overrides DBPassword=<clave> JwtSecret=<secret> NvidiaApiKey=<key>
-    2. Obtener las URIs de ECR desde los Outputs del stack.
-    3. Construir y subir imágenes (ver sección "Cómo subir imágenes" al final).
-    4. Forzar nuevo despliegue: aws ecs update-service --cluster nexo-cluster \
-         --service nexo-backend --force-new-deployment (idem para nexo-frontend).
+  FLUJO COMPLETO:
+    1. Crear stack: aws cloudformation deploy ...
+    2. Autenticarse en ECR y subir imágenes (ver Outputs)
+    3. Inicializar BD: correr init.sql en RDS (ver instrucciones abajo)
+    4. Reiniciar tarea ECS para que tome las imágenes
+    5. Abrir http://<ElasticIP> en el browser
 
-# ─────────────────────────────────────────────────────────────────────────────
+  DESTRUIR TODO:
+    1. Vaciar repos ECR: aws ecr batch-delete-image ...
+    2. aws cloudformation delete-stack --stack-name nexo-prod
+
 Parameters:
-# ─────────────────────────────────────────────────────────────────────────────
 
   ProjectName:
     Type: String
     Default: nexo
-    Description: Prefijo para todos los recursos
 
   DBPassword:
     Type: String
     NoEcho: true
     MinLength: 12
-    Description: Contraseña para RDS PostgreSQL (mín 12 caracteres)
+    Description: "Contraseña para PostgreSQL (mín 12 chars). Ej: NexoPass2026!!"
 
   JwtSecret:
     Type: String
     NoEcho: true
     MinLength: 32
-    Description: Secreto JWT para firma de tokens (mín 32 caracteres)
+    Description: "Secreto JWT (mín 32 chars). Genera con: openssl rand -hex 32"
 
   NvidiaApiKey:
     Type: String
     NoEcho: true
-    Description: API Key de NVIDIA NIM (para el agente GLM)
+    Description: "API Key de NVIDIA NIM (nvapi-xxxx)"
 
   NvidiaNimUrl:
     Type: String
     Default: 'https://integrate.api.nvidia.com/v1'
-    Description: Base URL de NVIDIA NIM
 
   GlmModel:
     Type: String
     Default: 'z-ai/glm-5.1'
-    Description: Modelo GLM a usar en NVIDIA NIM
+
+  EC2InstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t3.micro]
+    Description: "t2.micro es Free Tier. t3.micro también si está disponible en tu región."
 
   DBInstanceClass:
     Type: String
-    Default: db.t3.micro
-    AllowedValues: [db.t3.micro, db.t3.small, db.t3.medium]
-    Description: Tamaño de la instancia RDS
+    Default: db.t2.micro
+    AllowedValues: [db.t2.micro, db.t3.micro]
+    Description: "db.t2.micro es Free Tier (750 h/mes)"
 
-  BackendCpu:
-    Type: Number
-    Default: 512
-    AllowedValues: [256, 512, 1024, 2048]
-    Description: vCPU para la tarea ECS del backend (en unidades, 256=0.25vCPU)
+  AllowSSHFrom:
+    Type: String
+    Default: '0.0.0.0/0'
+    Description: "CIDR que puede hacer SSH a la EC2. Cambia a tu IP pública para más seguridad."
 
-  BackendMemory:
-    Type: Number
-    Default: 1024
-    AllowedValues: [512, 1024, 2048, 4096]
-    Description: Memoria para la tarea ECS del backend (en MB)
-
-  FrontendCpu:
-    Type: Number
-    Default: 256
-    AllowedValues: [256, 512]
-    Description: vCPU para la tarea ECS del frontend
-
-  FrontendMemory:
-    Type: Number
-    Default: 512
-    AllowedValues: [512, 1024]
-    Description: Memoria para la tarea ECS del frontend (en MB)
-
-# ─────────────────────────────────────────────────────────────────────────────
 Resources:
-# ─────────────────────────────────────────────────────────────────────────────
 
   # ── VPC ───────────────────────────────────────────────────────────────────
 
@@ -97,10 +79,6 @@ Resources:
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-igw'
 
   IGWAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -108,8 +86,8 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Subnets públicas para ALB + ECS Fargate (2 AZs)
-  PublicSubnet1:
+  # Subnet pública para EC2 (necesita internet para pull de ECR)
+  PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
@@ -118,49 +96,35 @@ Resources:
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub '${ProjectName}-public-1'
+          Value: !Sub '${ProjectName}-public'
 
-  PublicSubnet2:
+  # RDS subnet group requiere mínimo 2 AZs
+  RDSSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select [1, !GetAZs '']
-      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
       Tags:
         - Key: Name
-          Value: !Sub '${ProjectName}-public-2'
+          Value: !Sub '${ProjectName}-rds-1'
 
-  # Subnets privadas solo para RDS
-  PrivateSubnet1:
+  RDSSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       CidrBlock: 10.0.3.0/24
-      AvailabilityZone: !Select [0, !GetAZs '']
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-private-1'
-
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: 10.0.4.0/24
       AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name
-          Value: !Sub '${ProjectName}-private-2'
+          Value: !Sub '${ProjectName}-rds-2'
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-public-rt'
 
-  PublicDefaultRoute:
+  DefaultRoute:
     Type: AWS::EC2::Route
     DependsOn: IGWAttachment
     Properties:
@@ -168,24 +132,18 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  PublicSubnet1RTA:
+  PublicSubnetRTA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref PublicSubnet1
-      RouteTableId: !Ref PublicRouteTable
-
-  PublicSubnet2RTA:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PublicSubnet2
+      SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref PublicRouteTable
 
   # ── Security Groups ───────────────────────────────────────────────────────
 
-  ALBSecurityGroup:
+  EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ALB — permite HTTP/HTTPS desde internet
+      GroupDescription: 'EC2 ECS host — HTTP público + SSH opcional'
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -193,57 +151,26 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-alb-sg'
-
-  BackendSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Backend ECS — acepta tráfico solo del ALB
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 4000
-          ToPort: 4000
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowSSHFrom
       SecurityGroupEgress:
         - IpProtocol: '-1'
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub '${ProjectName}-backend-sg'
-
-  FrontendSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Frontend ECS — acepta tráfico solo del ALB
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: '-1'
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-frontend-sg'
+          Value: !Sub '${ProjectName}-ec2-sg'
 
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS PostgreSQL — acepta solo desde backend ECS
+      GroupDescription: 'RDS PostgreSQL — solo desde EC2'
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
-          SourceSecurityGroupId: !Ref BackendSecurityGroup
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
       Tags:
         - Key: Name
           Value: !Sub '${ProjectName}-rds-sg'
@@ -261,22 +188,11 @@ Resources:
           {
             "rules": [{
               "rulePriority": 1,
-              "description": "Mantener últimas 10 imágenes con tag",
+              "description": "Mantener solo las últimas 3 imágenes (free tier 500MB)",
               "selection": {
-                "tagStatus": "tagged",
-                "tagPrefixList": ["latest", "v"],
+                "tagStatus": "any",
                 "countType": "imageCountMoreThan",
-                "countNumber": 10
-              },
-              "action": { "type": "expire" }
-            }, {
-              "rulePriority": 2,
-              "description": "Expirar imágenes sin tag después de 7 días",
-              "selection": {
-                "tagStatus": "untagged",
-                "countType": "sinceImagePushed",
-                "countUnit": "days",
-                "countNumber": 7
+                "countNumber": 3
               },
               "action": { "type": "expire" }
             }]
@@ -293,22 +209,11 @@ Resources:
           {
             "rules": [{
               "rulePriority": 1,
-              "description": "Mantener últimas 10 imágenes con tag",
+              "description": "Mantener solo las últimas 3 imágenes (free tier 500MB)",
               "selection": {
-                "tagStatus": "tagged",
-                "tagPrefixList": ["latest", "v"],
+                "tagStatus": "any",
                 "countType": "imageCountMoreThan",
-                "countNumber": 10
-              },
-              "action": { "type": "expire" }
-            }, {
-              "rulePriority": 2,
-              "description": "Expirar imágenes sin tag después de 7 días",
-              "selection": {
-                "tagStatus": "untagged",
-                "countType": "sinceImagePushed",
-                "countUnit": "days",
-                "countNumber": 7
+                "countNumber": 3
               },
               "action": { "type": "expire" }
             }]
@@ -319,18 +224,15 @@ Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: !Sub '${ProjectName} DB subnet group'
+      DBSubnetGroupDescription: !Sub '${ProjectName} DB subnets'
       SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-db-subnet-group'
+        - !Ref RDSSubnet1
+        - !Ref RDSSubnet2
 
   Database:
     Type: AWS::RDS::DBInstance
-    DeletionPolicy: Snapshot
-    UpdateReplacePolicy: Snapshot
+    DeletionPolicy: Delete        # Permite eliminar sin snapshot — facilita teardown
+    UpdateReplacePolicy: Delete
     Properties:
       DBInstanceIdentifier: !Sub '${ProjectName}-db'
       DBName: nexo
@@ -341,58 +243,45 @@ Resources:
       MasterUserPassword: !Ref DBPassword
       AllocatedStorage: '20'
       StorageType: gp2
-      StorageEncrypted: true
       MultiAZ: false
       PubliclyAccessible: false
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
-      BackupRetentionPeriod: 7
-      PreferredBackupWindow: '03:00-04:00'
-      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
-      DeletionProtection: true
-      EnableCloudwatchLogsExports:
-        - postgresql
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-db'
+      BackupRetentionPeriod: 1    # Mínimo para free tier (0 desactiva backups)
+      DeletionProtection: false   # false para poder destruir el stack fácilmente
 
-  # ── ECS Cluster ───────────────────────────────────────────────────────────
+  # ── IAM ───────────────────────────────────────────────────────────────────
 
-  ECSCluster:
-    Type: AWS::ECS::Cluster
+  # EC2 instance profile para que el host se registre en el cluster ECS y pueda
+  # hacer pull de imágenes desde ECR
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
     Properties:
-      ClusterName: !Sub '${ProjectName}-cluster'
-      CapacityProviders:
-        - FARGATE
-        - FARGATE_SPOT
-      DefaultCapacityProviderStrategy:
-        - CapacityProvider: FARGATE
-          Weight: 1
-      ClusterSettings:
-        - Name: containerInsights
-          Value: enabled
+      RoleName: !Sub '${ProjectName}-ec2-instance-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore  # Para ECS Exec / Session Manager
 
-  # ── CloudWatch Logs ───────────────────────────────────────────────────────
-
-  BackendLogGroup:
-    Type: AWS::Logs::LogGroup
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
     Properties:
-      LogGroupName: !Sub '/ecs/${ProjectName}/backend'
-      RetentionInDays: 30
+      InstanceProfileName: !Sub '${ProjectName}-ec2-instance-profile'
+      Roles:
+        - !Ref EC2InstanceRole
 
-  FrontendLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/ecs/${ProjectName}/frontend'
-      RetentionInDays: 14
-
-  # ── IAM Roles ─────────────────────────────────────────────────────────────
-
+  # Role para que ECS pueda descargar la imagen desde ECR y escribir logs
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ProjectName}-ecs-execution-role'
+      RoleName: !Sub '${ProjectName}-task-execution-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -406,7 +295,7 @@ Resources:
   ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ProjectName}-ecs-task-role'
+      RoleName: !Sub '${ProjectName}-task-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -415,127 +304,119 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: !Sub '${ProjectName}-task-policy'
+        - PolicyName: exec-command
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
                 Resource: '*'
 
-  # ── ALB ───────────────────────────────────────────────────────────────────
+  # ── ECS Cluster ───────────────────────────────────────────────────────────
 
-  ALB:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${ProjectName}-cluster'
+      Configuration:
+        ExecuteCommandConfiguration:
+          Logging: DEFAULT
+
+  # ── CloudWatch Log Groups ─────────────────────────────────────────────────
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ProjectName}'
+      RetentionInDays: 7    # 7 días en free tier (5GB incluido)
+
+  # ── EC2 (ECS host) ────────────────────────────────────────────────────────
+
+  # Key Pair debe crearse manualmente en la consola AWS antes de desplegar
+  # si quieres SSH. O déjalo en blanco y usa ECS Exec / Session Manager.
+  EC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-lt'
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id}}'
+        InstanceType: !Ref EC2InstanceType
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref EC2SecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo ECS_CLUSTER=${ProjectName}-cluster >> /etc/ecs/ecs.config
+            echo ECS_ENABLE_TASK_ENI=false >> /etc/ecs/ecs.config
+            yum update -y
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub '${ProjectName}-ecs-host'
+
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
     DependsOn: IGWAttachment
     Properties:
-      Name: !Sub '${ProjectName}-alb'
-      Type: application
-      Scheme: internet-facing
-      Subnets:
-        - !Ref PublicSubnet1
-        - !Ref PublicSubnet2
-      SecurityGroups:
-        - !Ref ALBSecurityGroup
-      LoadBalancerAttributes:
-        - Key: idle_timeout.timeout_seconds
-          Value: '60'
+      AutoScalingGroupName: !Sub '${ProjectName}-asg'
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet
+      LaunchTemplate:
+        LaunchTemplateId: !Ref EC2LaunchTemplate
+        Version: !GetAtt EC2LaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-ecs-host'
+          PropagateAtLaunch: true
 
-  BackendTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  # Elastic IP para tener una IP pública estable (gratis mientras la instancia corre)
+  ElasticIP:
+    Type: AWS::EC2::EIP
     Properties:
-      Name: !Sub '${ProjectName}-backend-tg'
-      Port: 4000
-      Protocol: HTTP
-      TargetType: ip
-      VpcId: !Ref VPC
-      HealthCheckPath: /api/health
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      TargetGroupAttributes:
-        - Key: deregistration_delay.timeout_seconds
-          Value: '30'
+      Domain: vpc
 
-  FrontendTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: !Sub '${ProjectName}-frontend-tg'
-      Port: 80
-      Protocol: HTTP
-      TargetType: ip
-      VpcId: !Ref VPC
-      HealthCheckPath: /
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      TargetGroupAttributes:
-        - Key: deregistration_delay.timeout_seconds
-          Value: '30'
+  # La asociación la hace un custom resource o manualmente (ver instrucciones).
+  # EIP debe asociarse al EC2 después de que el ASG lo lance.
+  # Por simplicidad, la asociación se muestra en el Output y se hace con 1 comando.
 
-  # Listener HTTP — todo va al frontend por defecto, /api/* al backend
-  ALBListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref ALB
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref FrontendTargetGroup
+  # ── ECS Task Definition ───────────────────────────────────────────────────
+  #
+  # NetworkMode: bridge — los contenedores se comunican via Docker links.
+  # El contenedor frontend usa Links: ["backend:backend"] para que nginx
+  # pueda hacer proxy_pass http://backend:4000.
+  # El puerto 80 del host (EC2) se mapea al puerto 80 del frontend.
 
-  # Ruta /api/* → backend
-  BackendListenerRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref ALBListener
-      Priority: 10
-      Conditions:
-        - Field: path-pattern
-          Values:
-            - '/api/*'
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref BackendTargetGroup
-
-  # Ruta /static/* → backend (archivos subidos)
-  StaticListenerRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref ALBListener
-      Priority: 20
-      Conditions:
-        - Field: path-pattern
-          Values:
-            - '/static/*'
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref BackendTargetGroup
-
-  # ── ECS Task Definitions ──────────────────────────────────────────────────
-
-  BackendTaskDefinition:
+  AppTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub '${ProjectName}-backend'
-      Cpu: !Ref BackendCpu
-      Memory: !Ref BackendMemory
-      NetworkMode: awsvpc
+      Family: !Sub '${ProjectName}-app'
+      NetworkMode: bridge
       RequiresCompatibilities:
-        - FARGATE
+        - EC2
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
       ContainerDefinitions:
+
+        # ── Backend Node.js ──────────────────────────────────────────────
         - Name: backend
           Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}-backend:latest'
           Essential: true
+          Cpu: 256
+          Memory: 512
           PortMappings:
             - ContainerPort: 4000
               Protocol: tcp
+              # Sin hostPort → ECS asigna puerto dinámico en el host (solo accesible desde nginx via link)
           Environment:
             - Name: NODE_ENV
               Value: production
@@ -560,11 +441,9 @@ Resources:
             - Name: GLM_MODEL
               Value: !Ref GlmModel
             - Name: FRONTEND_URL
-              Value: !Sub 'http://${ALB.DNSName}'
+              Value: !Sub 'http://${ElasticIP}'
           HealthCheck:
-            Command:
-              - CMD-SHELL
-              - 'wget -qO- http://localhost:4000/api/health || exit 1'
+            Command: ['CMD-SHELL', 'wget -qO- http://localhost:4000/api/health || exit 1']
             Interval: 30
             Timeout: 5
             Retries: 3
@@ -572,32 +451,27 @@ Resources:
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref BackendLogGroup
+              awslogs-group: !Ref AppLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: backend
 
-  FrontendTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub '${ProjectName}-frontend'
-      Cpu: !Ref FrontendCpu
-      Memory: !Ref FrontendMemory
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
-      TaskRoleArn: !GetAtt ECSTaskRole.Arn
-      ContainerDefinitions:
+        # ── Frontend nginx ────────────────────────────────────────────────
         - Name: frontend
           Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}-frontend:latest'
           Essential: true
+          Cpu: 128
+          Memory: 128
           PortMappings:
-            - ContainerPort: 80
+            - HostPort: 80          # Puerto 80 del EC2 → puerto 80 del contenedor nginx
+              ContainerPort: 80
               Protocol: tcp
+          Links:
+            - backend:backend       # nginx.prod.conf usa proxy_pass http://backend:4000
+          DependsOn:
+            - ContainerName: backend
+              Condition: START
           HealthCheck:
-            Command:
-              - CMD-SHELL
-              - 'wget -qO- http://localhost/ || exit 1'
+            Command: ['CMD-SHELL', 'wget -qO- http://localhost/ || exit 1']
             Interval: 30
             Timeout: 5
             Retries: 3
@@ -605,100 +479,55 @@ Resources:
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref FrontendLogGroup
+              awslogs-group: !Ref AppLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: frontend
 
-  # ── ECS Services ─────────────────────────────────────────────────────────
+  # ── ECS Service ───────────────────────────────────────────────────────────
 
-  BackendService:
+  AppService:
     Type: AWS::ECS::Service
-    DependsOn: BackendListenerRule
     Properties:
-      ServiceName: !Sub '${ProjectName}-backend'
+      ServiceName: !Sub '${ProjectName}-app'
       Cluster: !Ref ECSCluster
-      TaskDefinition: !Ref BackendTaskDefinition
+      TaskDefinition: !Ref AppTaskDefinition
       DesiredCount: 1
-      LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - !Ref PublicSubnet1
-            - !Ref PublicSubnet2
-          SecurityGroups:
-            - !Ref BackendSecurityGroup
-          AssignPublicIp: ENABLED
-      LoadBalancers:
-        - TargetGroupArn: !Ref BackendTargetGroup
-          ContainerName: backend
-          ContainerPort: 4000
-      HealthCheckGracePeriodSeconds: 120
+      LaunchType: EC2
       DeploymentConfiguration:
-        MinimumHealthyPercent: 50
-        MaximumPercent: 200
-
-  FrontendService:
-    Type: AWS::ECS::Service
-    DependsOn: ALBListener
-    Properties:
-      ServiceName: !Sub '${ProjectName}-frontend'
-      Cluster: !Ref ECSCluster
-      TaskDefinition: !Ref FrontendTaskDefinition
-      DesiredCount: 1
-      LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - !Ref PublicSubnet1
-            - !Ref PublicSubnet2
-          SecurityGroups:
-            - !Ref FrontendSecurityGroup
-          AssignPublicIp: ENABLED
-      LoadBalancers:
-        - TargetGroupArn: !Ref FrontendTargetGroup
-          ContainerName: frontend
-          ContainerPort: 80
-      HealthCheckGracePeriodSeconds: 60
-      DeploymentConfiguration:
-        MinimumHealthyPercent: 50
-        MaximumPercent: 200
+        MinimumHealthyPercent: 0    # Permite detener la tarea antes de lanzar la nueva
+        MaximumPercent: 100         # En t2.micro solo hay recursos para 1 tarea
+      EnableExecuteCommand: true    # Permite "aws ecs execute-command" para debug/migraciones
 
 # ─────────────────────────────────────────────────────────────────────────────
 Outputs:
 # ─────────────────────────────────────────────────────────────────────────────
 
-  AppURL:
-    Description: URL de la aplicación (ALB)
-    Value: !Sub 'http://${ALB.DNSName}'
-    Export:
-      Name: !Sub '${ProjectName}-app-url'
+  ElasticIPAddress:
+    Description: >
+      IP pública de la aplicación.
+      NOTA: Debes asociar esta EIP a la instancia EC2 manualmente (ver instrucciones).
+    Value: !Ref ElasticIP
 
   BackendECRUri:
-    Description: URI del repositorio ECR del backend
-    Value: !GetAtt BackendECR.RepositoryUri
-    Export:
-      Name: !Sub '${ProjectName}-backend-ecr'
+    Description: URI del repo ECR del backend — úsalo en el docker push
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}-backend'
 
   FrontendECRUri:
-    Description: URI del repositorio ECR del frontend
-    Value: !GetAtt FrontendECR.RepositoryUri
-    Export:
-      Name: !Sub '${ProjectName}-frontend-ecr'
+    Description: URI del repo ECR del frontend — úsalo en el docker push
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}-frontend'
 
   DatabaseEndpoint:
-    Description: Endpoint de RDS PostgreSQL
+    Description: Endpoint del RDS PostgreSQL (para correr init.sql)
     Value: !GetAtt Database.Endpoint.Address
-    Export:
-      Name: !Sub '${ProjectName}-db-endpoint'
 
   ECSClusterName:
     Description: Nombre del cluster ECS
     Value: !Ref ECSCluster
-    Export:
-      Name: !Sub '${ProjectName}-cluster'
 
-  VpcId:
-    Description: ID de la VPC
-    Value: !Ref VPC
-    Export:
-      Name: !Sub '${ProjectName}-vpc-id'
+  ECSServiceName:
+    Description: Nombre del servicio ECS
+    Value: !Sub '${ProjectName}-app'
+
+  ECRLoginCommand:
+    Description: Comando para autenticarse en ECR
+    Value: !Sub 'aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com'
