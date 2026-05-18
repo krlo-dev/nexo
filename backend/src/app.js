@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { runMigrations } = require('./migrate');
 
 const app = express();
 
@@ -25,7 +26,16 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 const { rebuildStoresCatalog } = require('./services/agentService');
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Nexo backend listening on port ${PORT}`);
-  rebuildStoresCatalog().catch(err => console.error('[CATALOG] startup rebuild failed:', err.message));
+
+async function start() {
+  await runMigrations();
+  rebuildStoresCatalog().catch(() => {});
+  app.listen(PORT, () => {
+    console.log(`Nexo backend listening on port ${PORT}`);
+  });
+}
+
+start().catch(err => {
+  console.error('Startup failed:', err.message);
+  process.exit(1);
 });
