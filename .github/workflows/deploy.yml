@@ -49,6 +49,14 @@ jobs:
           aws ecs update-service \
             --cluster nexo-cluster \
             --service nexo-app \
+            --desired-count 1 \
             --force-new-deployment \
             --query 'service.serviceName' \
             --output text
+
+      - name: Wait for ECS service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster nexo-cluster \
+            --services nexo-app
+          echo "✓ Servicio ECS estable y corriendo"
